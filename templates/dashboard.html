@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Trashbin">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+    <title>Smart Trashbin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🗑️ Smart Trashbin Dashboard</h1>
+            <p class="subtitle">Real-time Waste Management System with Scope 3 Emissions Tracking</p>
+        </header>
+
+        <!-- Scope 3 Emissions Overview -->
+        <section class="emissions-overview">
+            <h2>🌍 Scope 3 Carbon Footprint</h2>
+            <div class="emissions-grid">
+                <div class="emission-card positive">
+                    <div class="emission-icon">🌱</div>
+                    <div class="emission-value">{{ "%.2f"|format(emissions.total_co2_avoided if emissions else 0) }} kg</div>
+                    <div class="emission-label">CO₂ Avoided (Recycling)</div>
+                </div>
+                <div class="emission-card negative">
+                    <div class="emission-icon">🏭</div>
+                    <div class="emission-value">{{ "%.2f"|format(emissions.total_co2_landfill if emissions else 0) }} kg</div>
+                    <div class="emission-label">CO₂ from Landfill</div>
+                </div>
+                <div class="emission-card recycling">
+                    <div class="emission-icon">♻️</div>
+                    <div class="emission-value">{{ "%.2f"|format(emissions.total_waste_diverted if emissions else 0) }} kg</div>
+                    <div class="emission-label">Waste Diverted</div>
+                </div>
+                <div class="emission-card net {% if emissions and emissions.net_co2_emissions < 0 %}net-positive{% else %}net-negative{% endif %}">
+                    <div class="emission-icon">⚖️</div>
+                    <div class="emission-value">{{ "%.2f"|format(emissions.net_co2_emissions if emissions else 0) }} kg</div>
+                    <div class="emission-label">Net CO₂ Impact</div>
+                    <div class="emission-sublabel">
+                        {% if emissions and emissions.net_co2_emissions < 0 %}
+                            <span class="positive-impact">✓ Carbon Negative</span>
+                        {% else %}
+                            <span class="negative-impact">⚠ Carbon Positive</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="emissions-info">
+                <p><strong>Emissions Factors:</strong> Landfill: 0.5 kg CO₂/kg | Recycling Process: 0.1 kg CO₂/kg | Production Avoided: 2.0 kg CO₂/kg</p>
+                {% if emissions %}
+                <p class="last-updated">Last Calculated: {{ emissions.last_updated }}</p>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Daily Weight Chart -->
+        <section class="chart-section">
+            <h2>📈 Daily Waste Collected (Last 7 Days)</h2>
+            <div class="chart-container">
+                <canvas id="capacityChart"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <span class="legend-color normal"></span>
+                    <span>Normal Waste</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color recycle"></span>
+                    <span>Recyclable Waste</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Current Status Section -->
+        <section class="status-section">
+            <h2>Current Status</h2>
+            <div class="status-grid">
+                <!-- Normal Waste Bin -->
+                <div class="bin-card normal-bin">
+                    <div class="bin-header">
+                        <h3>🗑️ Normal Waste</h3>
+                    </div>
+                    <div class="bin-content">
+                        <div class="capacity-bar">
+                            <div class="capacity-fill" style="width: {{ (status.normal_volume / status.normal_capacity * 100) if status else 0 }}%">
+                                <span class="capacity-text">{{ "%.1f"|format(status.normal_volume if status else 0) }}%</span>
+                            </div>
+                        </div>
+                        <div class="bin-stats">
+                            <div class="stat">
+                                <span class="stat-label">Volume:</span>
+                                <span class="stat-value">{{ "%.2f"|format(status.normal_volume if status else 0) }} L</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Weight:</span>
+                                <span class="stat-value">{{ "%.2f"|format(status.normal_weight if status else 0) }} kg</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Capacity:</span>
+                                <span class="stat-value">{{ "%.1f"|format((status.normal_volume / status.normal_capacity * 100) if status else 0) }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recyclable Waste Bin -->
+                <div class="bin-card recycle-bin">
+                    <div class="bin-header">
+                        <h3>♻️ Recyclable Waste</h3>
+                    </div>
+                    <div class="bin-content">
+                        <div class="capacity-bar">
+                            <div class="capacity-fill recycle" style="width: {{ (status.recycle_volume / status.recycle_capacity * 100) if status else 0 }}%">
+                                <span class="capacity-text">{{ "%.1f"|format(status.recycle_volume if status else 0) }}%</span>
+                            </div>
+                        </div>
+                        <div class="bin-stats">
+                            <div class="stat">
+                                <span class="stat-label">Volume:</span>
+                                <span class="stat-value">{{ "%.2f"|format(status.recycle_volume if status else 0) }} L</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Weight:</span>
+                                <span class="stat-value">{{ "%.2f"|format(status.recycle_weight if status else 0) }} kg</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Capacity:</span>
+                                <span class="stat-value">{{ "%.1f"|format((status.recycle_volume / status.recycle_capacity * 100) if status else 0) }}%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% if status %}
+            <p class="last-updated">Last Updated: {{ status.last_updated }}</p>
+            {% endif %}
+        </section>
+
+        <!-- Waste Statistics with Emissions -->
+        <section class="stats-section">
+            <h2>📊 Waste & Emissions Statistics</h2>
+            {% if stats %}
+            <div class="stats-grid">
+                {% for stat in stats %}
+                <div class="stat-card {% if stat.waste_type == 'recycle' %}recycle{% else %}normal{% endif %}">
+                    <h3>{% if stat.waste_type == 'recycle' %}♻️ Recyclable{% else %}🗑️ Normal{% endif %} Waste</h3>
+                    <div class="stat-details">
+                        <div class="stat-row">
+                            <span class="stat-label">Total Entries:</span>
+                            <span class="stat-value">{{ stat.count }}</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Total Volume:</span>
+                            <span class="stat-value">{{ "%.2f"|format(stat.total_volume) }} L</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Total Weight:</span>
+                            <span class="stat-value">{{ "%.2f"|format(stat.total_weight) }} kg</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Avg Volume:</span>
+                            <span class="stat-value">{{ "%.2f"|format(stat.avg_volume) }} L</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Avg Weight:</span>
+                            <span class="stat-value">{{ "%.2f"|format(stat.avg_weight) }} kg</span>
+                        </div>
+                        <div class="stat-row emissions-row">
+                            <span class="stat-label">Total CO₂:</span>
+                            <span class="stat-value {% if stat.total_co2 < 0 %}positive-co2{% else %}negative-co2{% endif %}">
+                                {{ "%.2f"|format(stat.total_co2 if stat.total_co2 else 0) }} kg
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="no-data">No statistics available yet.</p>
+            {% endif %}
+        </section>
+
+        <!-- Recent Logs Section -->
+        <section class="logs-section">
+            <h2>Recent Activity Logs</h2>
+            {% if logs %}
+            <div class="logs-table-container">
+                <table class="logs-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Event</th>
+                            <th>Type</th>
+                            <th>Volume (L)</th>
+                            <th>Weight (kg)</th>
+                            <th>CO₂ (kg)</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr class="{% if log.waste_type == 'recycle' %}recycle-row{% else %}normal-row{% endif %} {% if log.event_type|default('add') == 'empty' %}empty-event{% endif %}">
+                            <td>{{ log.id }}</td>
+                            <td>
+                                <span class="event-badge {% if log.event_type|default('add') == 'empty' %}empty{% else %}add{% endif %}">
+                                    {% if log.event_type|default('add') == 'empty' %}🧹 Empty{% else %}➕ Add{% endif %}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="type-badge {% if log.waste_type == 'recycle' %}recycle{% else %}normal{% endif %}">
+                                    {{ log.waste_type|capitalize }}
+                                </span>
+                            </td>
+                            <td>{{ "%.2f"|format(log.volume) }}</td>
+                            <td>{{ "%.2f"|format(log.weight) }}</td>
+                            <td class="{% if log.co2_emissions|default(0) < 0 %}positive-co2{% elif log.co2_emissions|default(0) > 0 %}negative-co2{% endif %}">
+                                {{ "%.3f"|format(log.co2_emissions|default(0)) }}
+                                {% if log.co2_emissions|default(0) < 0 %}
+                                    <span class="co2-indicator positive">↓</span>
+                                {% elif log.co2_emissions|default(0) > 0 %}
+                                    <span class="co2-indicator negative">↑</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ log.timestamp }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="no-data">No activity logs yet.</p>
+            {% endif %}
+        </section>
+
+        <!-- API Testing Forms -->
+        <section class="forms-section">
+            <h2>API Testing Forms</h2>
+            <div class="forms-grid">
+                <!-- Add Trash Form -->
+                <div class="form-card">
+                    <h3>🗑️ Add Trash Entry</h3>
+                    <form id="addTrashForm">
+                        <div class="form-group">
+                            <label for="waste_type">Waste Type:</label>
+                            <select id="waste_type" name="waste_type" required>
+                                <option value="normal">Normal Waste</option>
+                                <option value="recycle">Recyclable Waste</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="volume">Volume (L):</label>
+                            <input type="number" id="volume" name="volume" step="0.1" min="0.1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="weight">Weight (kg):</label>
+                            <input type="number" id="weight" name="weight" step="0.1" min="0.1" required>
+                        </div>
+                        <button type="submit" class="form-btn">Add Trash</button>
+                    </form>
+                </div>
+
+                <!-- Empty Bin Form -->
+                <div class="form-card">
+                    <h3>🧹 Empty Trash Bin</h3>
+                    <form id="emptyBinForm">
+                        <div class="form-group">
+                            <label for="empty_type">Bin to Empty:</label>
+                            <select id="empty_type" name="waste_type" required>
+                                <option value="normal">Normal Waste</option>
+                                <option value="recycle">Recyclable Waste</option>
+                                <option value="both">Both Bins</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="form-btn danger">Empty Bin</button>
+                    </form>
+                </div>
+
+                <!-- Get Status Form -->
+                <div class="form-card">
+                    <h3>📊 Get Current Status</h3>
+                    <form id="getStatusForm">
+                        <p class="form-description">Fetch the latest bin status from the API</p>
+                        <button type="submit" class="form-btn info">Get Status</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Response Display -->
+            <div id="apiResponse" class="api-response" style="display: none;">
+                <h3>API Response:</h3>
+                <pre id="responseContent"></pre>
+            </div>
+        </section>
+
+        <!-- API Documentation -->
+        <section class="api-section">
+            <h2>API Documentation</h2>
+            <div class="api-docs">
+                <div class="api-endpoint">
+                    <h3>Add Trash Entry</h3>
+                    <code>POST /api/trash</code>
+                    <pre>{
+  "waste_type": "normal" or "recycle",
+  "volume": 5.5,
+  "weight": 2.3
+}</pre>
+                </div>
+                <div class="api-endpoint">
+                    <h3>Get Current Status</h3>
+                    <code>GET /api/status</code>
+                </div>
+                <div class="api-endpoint">
+                    <h3>Empty Bin</h3>
+                    <code>POST /api/reset</code>
+                    <pre>{
+  "waste_type": "normal", "recycle", or "both"
+}</pre>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>Smart Trashbin Management System &copy; 2025</p>
+            <button onclick="location.reload()" class="refresh-btn">🔄 Refresh Dashboard</button>
+        </footer>
+    </div>
+
+    <script>
+        // Service Worker Registration for PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.log('Service Worker registration failed'));
+        }
+
+        // Check for stored API response on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            const storedResponse = sessionStorage.getItem('apiResponse');
+            if (storedResponse) {
+                const responseData = JSON.parse(storedResponse);
+                showResponse(responseData.data, responseData.success);
+                sessionStorage.removeItem('apiResponse');
+            }
+        });
+
+        // Auto-refresh dashboard every 30 seconds
+        let autoRefresh = setInterval(function() {
+            location.reload();
+        }, 30000);
+
+        // Helper function to show API response
+        function showResponse(data, success = true) {
+            const responseDiv = document.getElementById('apiResponse');
+            const responseContent = document.getElementById('responseContent');
+            responseDiv.style.display = 'block';
+            responseDiv.className = 'api-response ' + (success ? 'success' : 'error');
+            responseContent.textContent = JSON.stringify(data, null, 2);
+            
+            // Scroll to response
+            responseDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Helper function to store response and reload
+        function storeAndReload(data, success) {
+            sessionStorage.setItem('apiResponse', JSON.stringify({
+                data: data,
+                success: success
+            }));
+            location.reload();
+        }
+
+        // Add Trash Form Handler
+        document.getElementById('addTrashForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                waste_type: document.getElementById('waste_type').value,
+                volume: parseFloat(document.getElementById('volume').value),
+                weight: parseFloat(document.getElementById('weight').value)
+            };
+
+            try {
+                const response = await fetch('/api/trash', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    this.reset();
+                    storeAndReload(data, true);
+                } else {
+                    showResponse(data, false);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, false);
+            }
+        });
+
+        // Empty Bin Form Handler
+        document.getElementById('emptyBinForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const wasteType = document.getElementById('empty_type').value;
+            
+            if (!confirm(`Are you sure you want to empty the ${wasteType} bin(s)?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ waste_type: wasteType })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    storeAndReload(data, true);
+                } else {
+                    showResponse(data, false);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, false);
+            }
+        });
+
+        // Get Status Form Handler
+        document.getElementById('getStatusForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            try {
+                const response = await fetch('/api/status', {
+                    method: 'GET'
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResponse(data, true);
+                } else {
+                    showResponse(data, false);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, false);
+            }
+        });
+
+        // Daily Weight Chart with Real-time Updates
+        const dailyCapacityData = {{ daily_capacity | tojson | safe }};
+        
+        // Extract data for chart
+        const dates = dailyCapacityData.map(d => d.date);
+        const normalData = dailyCapacityData.map(d => d.normal_weight);
+        const recycleData = dailyCapacityData.map(d => d.recycle_weight);
+        
+        // Format dates for display
+        const formattedDates = dates.map(date => {
+            const d = new Date(date);
+            const today = new Date();
+            const isToday = d.toDateString() === today.toDateString();
+            
+            if (isToday) {
+                return 'Today';
+            } else {
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            }
+        });
+        
+        // Create chart
+        const ctx = document.getElementById('capacityChart').getContext('2d');
+        const capacityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: formattedDates,
+                datasets: [
+                    {
+                        label: 'Normal Waste',
+                        data: normalData,
+                        borderColor: '#ff6b6b',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#ff6b6b',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
+                    },
+                    {
+                        label: 'Recyclable Waste',
+                        data: recycleData,
+                        borderColor: '#51cf66',
+                        backgroundColor: 'rgba(81, 207, 102, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#51cf66',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 12,
+                        titleFont: {
+                            size: 14,
+                            weight: 'bold'
+                        },
+                        bodyFont: {
+                            size: 13
+                        },
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + ' kg';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Weight Collected (kg)',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value + ' kg';
+                            }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Date',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        grid: {
+                            display: false
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                }
+            }
+        });
+    </script>
+</body>
+</html>
