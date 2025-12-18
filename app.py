@@ -2,9 +2,104 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 from datetime import datetime
 import sqlite3
 import os
+import cv2 as cv
+import base64
+import openai
+from pydantic import BaseModel
+
+id_to_material = {
+    1 : "Glass",
+    2 : "Paper",
+    3 : "Plastic",
+    4 : "Metal",
+    5 : "Cardboard",
+    6 : "Biodegradable"
+}
+
+text_prompt = """
+Your task is to peform closed-set object classification based on a list of categories and open-set object classification to identify what the item is. For context, the items shown in the image are common trash items.
+
+Categories for closed-set object classification are: 
+1. Glass 
+2. Paper 
+3. Plastic 
+4. Metal 
+5. Cardboard 
+6. Biodegradable 
+
+Please give the output in the format of [(Categorical ID, Item description, Brand name, Weight, Recyclableness)], for example:
+[(3, Plastic Bottle, Namthip, 7, 500, Yes), (2, Paper Shopping Bag, Zurich Duty Free Shopping Bag, 30, 1500, Yes), (1, Glass Soda Bottle, Chang, 150, 500, Yes)]
+
+Do not provide any reasonings.
+
+Things to note:
+We are located in Bangkok, Thailand.
+For the brand name, try to find the product brand visually. If it is unbranded or unidentifiable, use the most common brand that produces this item in Bangkok, Thailand.
+For the weight in grams, output a single number in integer format and try to come up with an estimate by making several assumptions from the object semantic description, relative size and material (e.g. average weight of a shopping bag is 6 grams).
+For the volume in millilitres, output a number in integer format and try to come up with an estimate by making several assumptions from the object semantic description, relative size and material
+"""
+
+
+class Out(BaseModel):
+    id: int
+    item_description: str
+    brand_name: str
+    weight: int
+    volume : int
+    recyclable: bool
+class ModelOutput(BaseModel):
+    out : list[Out]
+
+def img_to_b64(img):
+    retval, buffer = cv.imencode('.png', img)
+    
+    if not retval:
+        return "Errored!"
+    
+    # 3. Perform Base64 encoding on the buffer (bytes)
+    b64_bytes = base64.b64encode(buffer)
+
+    # 4. Convert the Base64 bytes to a string for easier transmission/storage
+    return b64_bytes.decode('utf-8')
+
+def create_response(b64_str):
+    response = client.responses.parse( 
+        model="gpt-5.1", 
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": text_prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": b64_str
+                    },
+                ],
+            }
+        ],
+        text_format=ModelOutput 
+    )
+    
+    resp_dict = response.output_parsed.model_dump()
+    for out in resp_dict["out"]:
+        out["material"] = id_to_material[out["id"]]
+    return resp_dict
 
 app = Flask(__name__)
 DATABASE = 'trashbin.db'
+
+client = openai.OpenAI()
+
+cap = None
+if os.environ.get('WERKZEUG_RUN_MAIN'):
+    cap = cv.VideoCapture(0)
+
+# Check if the webcam was opened successfully
+if cap is not None and not cap.isOpened():
+    print("Error: Could not access the webcam.")
+    exit()
+    
+print("Webcam accessed successfully! Press 'q' to quit.")
 
 # Store latest camera image in memory
 latest_camera_image = {
@@ -255,6 +350,8 @@ def dashboard():
     finally:
         if conn:
             conn.close()
+            
+
 
 @app.route('/api/trash', methods=['POST'])
 def add_trash():
@@ -265,7 +362,7 @@ def add_trash():
         
         waste_type = data.get('waste_type', '').lower()
         volume = float(data.get('volume', 0))
-        weight = float(data.get('weight', 0))
+        weight = float(data.get('weight', 0)) * 0.001
         brand = data.get('brand', '')
         product = data.get('product', '')
         
@@ -564,55 +661,93 @@ def serve_icon():
     """Serve the SVG icon for both sizes"""
     return send_from_directory('static', 'icon.svg', mimetype='image/svg+xml')
 
-@app.route('/api/camera-feed', methods=['POST'])
+@app.route('/api/detect', methods=['GET'])
 def camera_feed():
     """API endpoint to receive and store base64 encoded image"""
     global latest_camera_image
     
-    try:
-        data = request.get_json()
+    if latest_camera_image["image"] is None:
+        print("Can't receive frame (stream end?). Exiting ...")
+        return jsonify({'error': 'No image data provided'}), 400
+    
+    print("Running inference!")
+    
+    resp_dict = create_response(latest_camera_image["image"])
+    
+    for out in resp_dict["out"]:
+        recyclable = out["recyclable"]
+        volume = out["volume"] * 0.001
+        weight = out["weight"] * 0.001
+        brand = out["brand_name"]
+        product = out["item_description"]
         
-        if not data or 'image' not in data:
-            return jsonify({'error': 'No image data provided'}), 400
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        image_data = data['image']
+        waste_type = "normal" if not recyclable else "recycle"
         
-        # Validate base64 format (basic check)
-        if not image_data.startswith('data:image'):
-            # Add proper data URI prefix if not present
-            image_data = f'data:image/jpeg;base64,{image_data}'
+        # Add log entry (no emissions during add, only during empty)
+        cursor.execute('''
+            INSERT INTO trash_logs (waste_type, volume, weight, brand, product, event_type, co2_emissions)
+            VALUES (?, ?, ?, ?, ?, 'add', 0)
+        ''', (waste_type, volume, weight, brand, product))
         
-        # Store the latest image
-        latest_camera_image['image'] = image_data
-        latest_camera_image['timestamp'] = datetime.now().isoformat()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Image received and broadcast to all viewers',
-            'timestamp': latest_camera_image['timestamp']
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Update current status
+        if not recyclable:
+            cursor.execute('''
+                UPDATE trashbin_status
+                SET normal_volume = normal_volume + ?,
+                    normal_weight = normal_weight + ?,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = (SELECT MAX(id) FROM trashbin_status)
+            ''', (volume, weight))
+        else:  # recycle
+            cursor.execute('''
+                UPDATE trashbin_status
+                SET recycle_volume = recycle_volume + ?,
+                    recycle_weight = recycle_weight + ?,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = (SELECT MAX(id) FROM trashbin_status)
+            ''', (volume, weight))
+    
+    conn.commit()
+
+    return jsonify(resp_dict), 200
+    
 
 @app.route('/api/camera-feed', methods=['GET'])
 def get_camera_feed():
     """API endpoint to retrieve the latest camera image"""
-    global latest_camera_image
-    
-    if latest_camera_image['image'] is None:
+    ret, ori_frame = cap.read()
+        
+    # If the frame was not read correctly, break the loop
+    if not ret:
+        print("Can't receive frame (stream end?). Exiting ...")
         return jsonify({
             'success': False,
             'message': 'No image available'
         }), 404
     
+    b64_str = img_to_b64(ori_frame)
+    
+    if not b64_str.startswith('data:image'):
+        # Add proper data URI prefix if not present
+        b64_str = f'data:image/jpeg;base64,{b64_str}'
+        
+    latest_camera_image['image'] = b64_str
+    latest_camera_image['timestamp'] = datetime.now().isoformat()
+    
     return jsonify({
         'success': True,
-        'image': latest_camera_image['image'],
-        'timestamp': latest_camera_image['timestamp']
+        'image': b64_str,
+        'timestamp': datetime.now().isoformat()
     }), 200
 
 if __name__ == '__main__':
     # Initialize database on startup
     init_db()
     app.run(debug=True, host='0.0.0.0', port=5000)
+    
+    if cap is not None:
+        cap.release()
+    cv.destroyAllWindows()

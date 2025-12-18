@@ -748,7 +748,7 @@
                 
                 // Start polling every 2 seconds
                 pollCameraFeed(); // Get initial image
-                cameraFeedInterval = setInterval(pollCameraFeed, 2000);
+                cameraFeedInterval = setInterval(pollCameraFeed, 100);
             } else {
                 // Stop polling
                 if (cameraFeedInterval) {
@@ -808,26 +808,42 @@
             resultDiv.innerHTML = '<p>🔄 Detecting...</p>';
             
             try {
-                // TODO: Replace with actual detection API endpoint
-                const response = await fetch('https://api.example.com/detect-trash', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        image: currentImageBase64
-                    })
+                const response = await fetch('/api/detect', {
+                    method: 'GET',
                 });
+
+                const data = await response.json();
+
+                const detections = data["out"];
+
+                resultDiv.innerHTML = '';
+
+                console.log(detections);
+
+                detection = detections[0];
+
+                console.log(detection);
                 
-                // For now, simulate a response
-                setTimeout(() => {
-                    resultDiv.innerHTML = `
-                        <p style="color: #2e7d32;">✓ Detection Complete</p>
-                        <p><strong>Type:</strong> Recyclable (Plastic Bottle)</p>
-                        <p><strong>Confidence:</strong> 95%</p>
-                        <p style="font-size: 0.85em; color: #666;">Note: Using dummy detection API endpoint</p>
-                    `;
-                }, 1500);
+                resultDiv.innerHTML = `
+                    <p style="color: #2e7d32;">✓ Detection Complete</p>
+                    <p><strong>Recyclable:</strong>${detection["recyclable"]}</p>
+                    <p><strong>Material:</strong>${detection["material"]}</p>
+                    <p><strong>Item description:</strong>${detection["item_description"]}</p>
+                    <p><strong>Brand name:</strong>${detection["brand_name"]}</p>
+                    <p><strong>Weight (g):</strong>${detection["weight"]}</p>
+                    <p><strong>Volume (mL):</strong>${detection["volume"]}</p>
+                    `
+
+                // for(detection in detections) {
+                //     resultDiv.innerHTML += `
+                //     <p style="color: #2e7d32;">✓ Detection Complete</p>
+                //     <p><strong>Recyclable:</strong>${detection["id"]}</p>
+                //     <p><strong>Material:</strong>${detection["id"]}</p>
+                //     <p><strong>Item description:</strong>${detection["item_description"]}</p>
+                //     <p><strong>Brand name:</strong>${detection["brand_name"]}</p>
+                //     <p><strong>Weight:</strong>${detection["weight"]}</p>
+                //     `
+                // }
                 
             } catch (error) {
                 resultDiv.innerHTML = `<p style="color: #c62828;">⚠ Error: ${error.message}</p>`;
