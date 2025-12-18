@@ -44,7 +44,7 @@
             <div class="emissions-info" id="emissions-info" style="display: none;">
                 <p><strong>Emissions Factors:</strong> Landfill: 0.5 kg CO₂/kg | Recycling Process: 0.1 kg CO₂/kg | Production Avoided: 2.0 kg CO₂/kg</p>
                 {% if emissions %}
-                <p class="last-updated">Last Calculated: {{ emissions.last_updated }}</p>
+                <p class="last-updated"><span class="label">Last Calculated:</span> <span class="timestamp-cell">{{ emissions.last_updated }}</span></p>
                 {% endif %}
             </div>
             <div class="emissions-grid">
@@ -157,7 +157,7 @@
                 </div>
             </div>
             {% if status %}
-            <p class="last-updated">Last Updated: {{ status.last_updated }}</p>
+            <p class="last-updated"><span class="label">Last Updated:</span> <span class="timestamp-cell">{{ status.last_updated }}</span></p>
             {% endif %}
         </section>
 
@@ -301,7 +301,7 @@
                                     <span class="co2-indicator negative">↑</span>
                                 {% endif %}
                             </td>
-                            <td>{{ log.timestamp }}</td>
+                            <td class="timestamp-cell">{{ log.timestamp }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -856,6 +856,37 @@
                 }
             }
         }
+
+        // Convert UTC timestamps to local time
+        function convertTimestampsToLocal() {
+            document.querySelectorAll('.timestamp-cell').forEach(cell => {
+                const utcTime = cell.textContent.trim();
+                if (utcTime && utcTime !== '-') {
+                    try {
+                        // Parse the timestamp (format: YYYY-MM-DD HH:MM:SS)
+                        const date = new Date(utcTime.replace(' ', 'T') + 'Z'); // Add 'Z' to indicate UTC
+                        
+                        // Format as local time
+                        const options = {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        };
+                        const localTime = date.toLocaleString('en-CA', options).replace(',', '');
+                        cell.textContent = localTime;
+                    } catch (e) {
+                        console.error('Error converting timestamp:', e);
+                    }
+                }
+            });
+        }
+
+        // Convert timestamps on page load
+        convertTimestampsToLocal();
     </script>
 </body>
 </html>
