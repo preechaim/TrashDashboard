@@ -34,14 +34,17 @@ Based on EPA and industry standards:
 ### 🗑️ Waste Management
 - **Dual-bin system** (Normal & Recyclable waste)
 - **Real-time capacity monitoring**: Track volume and weight for each waste type
-- **Event logging**: Records add and empty operations
+- **Event logging**: Records add and empty operations with brand and product tracking
 - **Activity Logs**: View recent trash disposal activities with emissions data
+- **Brand & Product Tracking**: Track which brands and products are being disposed
 
 ### 📊 Analytics & Statistics
 - **Per-bin statistics** with emissions breakdown
 - **Activity logs** with CO₂ calculations per event
+- **Brand Statistics**: Top 10 brands by item count, with recycle/normal breakdown
 - **Comprehensive statistics**: Analyze waste patterns
 - **Historical trend tracking**
+- **Interactive charts**: Daily collection trends and hourly capacity analysis
 
 ### 🌱 Sustainability Insights
 - **Carbon footprint visualization**
@@ -49,8 +52,16 @@ Based on EPA and industry standards:
 - **Waste diversion metrics**
 - **Real-time sustainability scoring**
 
-- **REST API**: Simple API endpoints for IoT device integration
+### 📷 Camera Feed Integration
+- **Live camera feed**: View real-time camera stream from external devices
+- **Base64 image transmission**: External cameras can send images via API
+- **Auto-refresh management**: Pauses dashboard refresh during camera viewing
+
+### 🔌 API & Integration
+- **REST API**: Multiple endpoints for IoT device integration
+- **Simplified JSON API**: Easy integration for smart bins with minimal data
 - **Auto-refresh**: Dashboard updates every 30 seconds
+- **Collapsible sections**: Mobile-optimized UI with expandable content
 
 ## Installation
 
@@ -71,16 +82,18 @@ http://localhost:5000
 
 ## API Endpoints
 
-### Add Trash Entry
+### Add Trash Entry (Detailed)
 **POST** `/api/trash`
 
-Add a new trash entry when waste is received.
+Add a new trash entry with full details.
 
 ```json
 {
-  "waste_type": "normal",  // or "recycle"
-  "volume": 5.5,           // liters
-  "weight": 2.3            // kilograms
+  "waste_type": "normal",
+  "volume": 5.5,
+  "weight": 2.3,
+  "brand": "Coca-Cola",
+  "product": "Soda Can"
 }
 ```
 
@@ -94,6 +107,38 @@ Add a new trash entry when waste is received.
     "normal_weight": 8.3,
     "recycle_volume": 10.2,
     "recycle_weight": 5.1
+  }
+}
+```
+
+### Add Item (Simplified JSON)
+**POST** `/api/add-item`
+
+Simplified API endpoint for smart bins with minimal data format.
+
+```json
+{
+  "recyclable": true,
+  "weight_in_gram": 250,
+  "product_brand": "Coca-Cola",
+  "product_name": "Soda Can"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Recyclable item added successfully",
+  "item": {
+    "product_name": "Soda Can",
+    "product_brand": "Coca-Cola",
+    "weight_kg": 0.25,
+    "recyclable": true
+  },
+  "current_status": {
+    "normal_weight_kg": 8.3,
+    "recycle_weight_kg": 5.35
   }
 }
 ```
@@ -116,6 +161,29 @@ Get the current status of both bins.
 }
 ```
 
+### Camera Feed
+**POST** `/api/camera-feed`
+
+Send a camera image (base64 encoded) to be displayed on the dashboard.
+
+```json
+{
+  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+}
+```
+
+**GET** `/api/camera-feed`
+
+Get the latest camera image.
+
+**Response:**
+```json
+{
+  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+  "timestamp": "2025-12-18T10:30:45.123456"
+}
+```
+
 ### Reset Bin
 **POST** `/api/reset`
 
@@ -123,7 +191,7 @@ Reset/empty one or both bins. **This triggers Scope 3 emissions calculations.**
 
 ```json
 {
-  "waste_type": "both"  // "normal", "recycle", or "both"
+  "waste_type": "both"
 }
 ```
 
@@ -161,18 +229,32 @@ The dashboard displays these calculations in real-time with:
 
 ### Using curl
 
+Add item (simplified format):
+```bash
+curl -X POST http://localhost:5000/api/add-item \
+  -H "Content-Type: application/json" \
+  -d '{"recyclable":true,"weight_in_gram":250,"product_brand":"Coca-Cola","product_name":"Soda Can"}'
+```
+
 Add normal waste:
 ```bash
 curl -X POST http://localhost:5000/api/trash \
   -H "Content-Type: application/json" \
-  -d '{"waste_type":"normal","volume":3.5,"weight":1.2}'
+  -d '{"waste_type":"normal","volume":3.5,"weight":1.2,"brand":"Pepsi","product":"Bottle"}'
 ```
 
 Add recyclable waste:
 ```bash
 curl -X POST http://localhost:5000/api/trash \
   -H "Content-Type: application/json" \
-  -d '{"waste_type":"recycle","volume":2.8,"weight":0.5}'
+  -d '{"waste_type":"recycle","volume":2.8,"weight":0.5,"brand":"Coca-Cola","product":"Can"}'
+```
+
+Send camera image:
+```bash
+curl -X POST http://localhost:5000/api/camera-feed \
+  -H "Content-Type: application/json" \
+  -d '{"image":"data:image/jpeg;base64,/9j/4AAQ..."}'
 ```
 
 Get status:
@@ -192,18 +274,38 @@ curl -X POST http://localhost:5000/api/reset \
 ```python
 import requests
 
-# Add trash
+# Add item (simplified)
+response = requests.post('http://localhost:5000/api/add-item', 
+    json={
+        'recyclable': True,
+        'weight_in_gram': 250,
+        'product_brand': 'Coca-Cola',
+        'product_name': 'Soda Can'
+    })
+print(response.json())
+
+# Add trash (detailed)
 response = requests.post('http://localhost:5000/api/trash', 
     json={
         'waste_type': 'normal',
         'volume': 3.5,
-        'weight': 1.2
+        'weight': 1.2,
+        'brand': 'Pepsi',
+        'product': 'Bottle'
     })
 print(response.json())
 
 # Get status
 response = requests.get('http://localhost:5000/api/status')
 print(response.json())
+```
+
+### Camera Client Example
+
+Use the included `camera_client_example.py` to send images from external cameras:
+
+```bash
+python camera_client_example.py path/to/image.jpg
 ```
 
 ## Database Schema
@@ -225,6 +327,8 @@ The application uses SQLite with three tables:
 - `waste_type`: Type of waste ("normal" or "recycle")
 - `volume`: Volume of waste added (liters)
 - `weight`: Weight of waste added (kg)
+- `brand`: Brand name of the product (optional)
+- `product`: Product name/description (optional)
 - `event_type`: Event type ("add" or "empty")
 - `co2_emissions`: CO₂ emissions in kg (calculated on empty events)
 - `timestamp`: When the event occurred
@@ -240,14 +344,19 @@ The application uses SQLite with three tables:
 
 ## Future Enhancements
 
-- [ ] Advanced analytics charts (Chart.js integration)
+- [x] Advanced analytics charts (Chart.js integration)
+- [x] Brand and product tracking
+- [x] Camera feed integration for visual monitoring
+- [x] Mobile-optimized collapsible UI
 - [ ] Export reports (PDF/CSV) for ESG reporting
 - [ ] Multi-location support for facility-wide tracking
 - [ ] Custom emissions factors per waste type
 - [ ] Mobile app integration
-- [ ] Real-time IoT sensor integration
+- [ ] Real-time IoT sensor integration with MQTT
 - [ ] Carbon offset recommendations
 - [ ] Benchmarking against industry standards
+- [ ] Machine learning for waste classification
+- [ ] QR code scanning for product identification
 
 ## License
 

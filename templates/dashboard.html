@@ -17,12 +17,36 @@
     <div class="container">
         <header>
             <h1>🗑️ Smart Trashbin Dashboard</h1>
-            <p class="subtitle">Real-time Waste Management System with Scope 3 Emissions Tracking</p>
+            <!-- <p class="subtitle">Real-time Waste Management System with Scope 3 Emissions Tracking</p> -->
         </header>
+
+        <!-- Detect Trash Section -->
+        <section class="detect-section">
+            <h2 class="clickable-header" onclick="toggleSection('detect-content', 'detect-icon')">📷 Trash Detection <span id="detect-icon">▼</span></h2>
+            <div class="detect-content" id="detect-content" style="display: none;">
+                <div class="video-container">
+                    <div class="video-placeholder" id="cameraFeed">
+                        <p>📹 Camera Feed</p>
+                        <p class="placeholder-text">Upload or send base64 image</p>
+                    </div>
+                    <img id="cameraImage" style="display: none; width: 100%; height: auto; border-radius: 10px;" />
+                </div>
+                <div class="detect-actions">
+                    <button class="detect-action-btn" onclick="detectTrash()">🔍 Detect</button>
+                </div>
+                <div id="detectionResult" class="detection-result" style="display: none;"></div>
+            </div>
+        </section>
 
         <!-- Scope 3 Emissions Overview -->
         <section class="emissions-overview">
-            <h2>🌍 Scope 3 Carbon Footprint</h2>
+            <h2 class="clickable-header" onclick="toggleEmissionsInfo()">🌍 Scope 3 Carbon Footprint <span id="toggle-icon">▼</span></h2>
+            <div class="emissions-info" id="emissions-info" style="display: none;">
+                <p><strong>Emissions Factors:</strong> Landfill: 0.5 kg CO₂/kg | Recycling Process: 0.1 kg CO₂/kg | Production Avoided: 2.0 kg CO₂/kg</p>
+                {% if emissions %}
+                <p class="last-updated">Last Calculated: {{ emissions.last_updated }}</p>
+                {% endif %}
+            </div>
             <div class="emissions-grid">
                 <div class="emission-card positive">
                     <div class="emission-icon">🌱</div>
@@ -51,12 +75,6 @@
                         {% endif %}
                     </div>
                 </div>
-            </div>
-            <div class="emissions-info">
-                <p><strong>Emissions Factors:</strong> Landfill: 0.5 kg CO₂/kg | Recycling Process: 0.1 kg CO₂/kg | Production Avoided: 2.0 kg CO₂/kg</p>
-                {% if emissions %}
-                <p class="last-updated">Last Calculated: {{ emissions.last_updated }}</p>
-                {% endif %}
             </div>
         </section>
 
@@ -87,10 +105,10 @@
                     <div class="bin-header">
                         <h3>🗑️ Normal Waste</h3>
                     </div>
-                    <div class="bin-content">
-                        <div class="capacity-bar">
-                            <div class="capacity-fill" style="width: {{ (status.normal_volume / status.normal_capacity * 100) if status else 0 }}%">
-                                <span class="capacity-text">{{ "%.1f"|format(status.normal_volume if status else 0) }}%</span>
+                    <div class="bin-content vertical-layout">
+                        <div class="capacity-bar-vertical">
+                            <div class="capacity-fill-vertical" style="height: {{ (status.normal_volume / status.normal_capacity * 100) if status else 0 }}%">
+                                <span class="capacity-text-vertical">{{ "%.1f"|format((status.normal_volume / status.normal_capacity * 100) if status else 0) }}%</span>
                             </div>
                         </div>
                         <div class="bin-stats">
@@ -115,10 +133,10 @@
                     <div class="bin-header">
                         <h3>♻️ Recyclable Waste</h3>
                     </div>
-                    <div class="bin-content">
-                        <div class="capacity-bar">
-                            <div class="capacity-fill recycle" style="width: {{ (status.recycle_volume / status.recycle_capacity * 100) if status else 0 }}%">
-                                <span class="capacity-text">{{ "%.1f"|format(status.recycle_volume if status else 0) }}%</span>
+                    <div class="bin-content vertical-layout">
+                        <div class="capacity-bar-vertical">
+                            <div class="capacity-fill-vertical recycle" style="height: {{ (status.recycle_volume / status.recycle_capacity * 100) if status else 0 }}%">
+                                <span class="capacity-text-vertical">{{ "%.1f"|format((status.recycle_volume / status.recycle_capacity * 100) if status else 0) }}%</span>
                             </div>
                         </div>
                         <div class="bin-stats">
@@ -145,7 +163,8 @@
 
         <!-- Waste Statistics with Emissions -->
         <section class="stats-section">
-            <h2>📊 Waste & Emissions Statistics</h2>
+            <h2 class="clickable-header" onclick="toggleSection('stats-content', 'stats-icon')">📊 Waste & Emissions Statistics <span id="stats-icon">▼</span></h2>
+            <div id="stats-content" style="display: none;">
             {% if stats %}
             <div class="stats-grid">
                 {% for stat in stats %}
@@ -185,11 +204,61 @@
             {% else %}
             <p class="no-data">No statistics available yet.</p>
             {% endif %}
+            </div>
+        </section>
+
+        <!-- Product Statistics Section -->
+        <section class="product-stats-section">
+            <h2 class="clickable-header" onclick="toggleSection('product-stats-content', 'product-stats-icon')">📦 Top 10 Products <span id="product-stats-icon">▼</span></h2>
+            <div id="product-stats-content" style="display: none;">
+            {% if product_stats %}
+            <div class="table-container">
+                <table class="product-stats-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Product</th>
+                            <th>Brand</th>
+                            <th>Total Items</th>
+                            <th>♻️ Recyclable</th>
+                            <th>🗑️ Normal</th>
+                            <th>Weight (kg)</th>
+                            <th>CO₂ Impact (kg)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for product in product_stats %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td><strong>{{ product.product }}</strong></td>
+                            <td>{{ product.brand if product.brand else '-' }}</td>
+                            <td><span class="badge-total">{{ product.total_items }}</span></td>
+                            <td><span class="badge-recycle">{{ product.recycle_count }}</span></td>
+                            <td><span class="badge-normal">{{ product.normal_count }}</span></td>
+                            <td>{{ "%.2f"|format(product.total_weight) }}</td>
+                            <td class="{% if product.total_co2 < 0 %}positive-co2{% else %}negative-co2{% endif %}">
+                                {{ "%.3f"|format(product.total_co2) }}
+                                {% if product.total_co2 < 0 %}
+                                    <span class="co2-indicator positive">↓</span>
+                                {% elif product.total_co2 > 0 %}
+                                    <span class="co2-indicator negative">↑</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="no-data">No product data available yet. Start adding items with product names!</p>
+            {% endif %}
+            </div>
         </section>
 
         <!-- Recent Logs Section -->
         <section class="logs-section">
-            <h2>Recent Activity Logs</h2>
+            <h2 class="clickable-header" onclick="toggleSection('logs-content', 'logs-icon')">Recent Activity Logs <span id="logs-icon">▼</span></h2>
+            <div id="logs-content" style="display: none;">
             {% if logs %}
             <div class="logs-table-container">
                 <table class="logs-table">
@@ -198,6 +267,8 @@
                             <th>ID</th>
                             <th>Event</th>
                             <th>Type</th>
+                            <th>Brand</th>
+                            <th>Product</th>
                             <th>Volume (L)</th>
                             <th>Weight (kg)</th>
                             <th>CO₂ (kg)</th>
@@ -218,6 +289,8 @@
                                     {{ log.waste_type|capitalize }}
                                 </span>
                             </td>
+                            <td>{{ log.brand if log.brand else '-' }}</td>
+                            <td>{{ log.product if log.product else '-' }}</td>
                             <td>{{ "%.2f"|format(log.volume) }}</td>
                             <td>{{ "%.2f"|format(log.weight) }}</td>
                             <td class="{% if log.co2_emissions|default(0) < 0 %}positive-co2{% elif log.co2_emissions|default(0) > 0 %}negative-co2{% endif %}">
@@ -237,11 +310,13 @@
             {% else %}
             <p class="no-data">No activity logs yet.</p>
             {% endif %}
+            </div>
         </section>
 
         <!-- API Testing Forms -->
         <section class="forms-section">
-            <h2>API Testing Forms</h2>
+            <h2 class="clickable-header" onclick="toggleSection('forms-content', 'forms-icon')">API Testing Forms <span id="forms-icon">▼</span></h2>
+            <div id="forms-content" style="display: none;">
             <div class="forms-grid">
                 <!-- Add Trash Form -->
                 <div class="form-card">
@@ -261,6 +336,14 @@
                         <div class="form-group">
                             <label for="weight">Weight (kg):</label>
                             <input type="number" id="weight" name="weight" step="0.1" min="0.1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="brand">Brand (optional):</label>
+                            <input type="text" id="brand" name="brand" placeholder="e.g., Coca-Cola, Pepsi">
+                        </div>
+                        <div class="form-group">
+                            <label for="product">Product (optional):</label>
+                            <input type="text" id="product" name="product" placeholder="e.g., Soda Can, Water Bottle">
                         </div>
                         <button type="submit" class="form-btn">Add Trash</button>
                     </form>
@@ -297,11 +380,13 @@
                 <h3>API Response:</h3>
                 <pre id="responseContent"></pre>
             </div>
+            </div>
         </section>
 
         <!-- API Documentation -->
         <section class="api-section">
-            <h2>API Documentation</h2>
+            <h2 class="clickable-header" onclick="toggleSection('api-content', 'api-icon')">API Documentation <span id="api-icon">▼</span></h2>
+            <div id="api-content" style="display: none;">
             <div class="api-docs">
                 <div class="api-endpoint">
                     <h3>Add Trash Entry</h3>
@@ -309,7 +394,8 @@
                     <pre>{
   "waste_type": "normal" or "recycle",
   "volume": 5.5,
-  "weight": 2.3
+  "weight": 2.3,
+  "brand": "Coca-Cola" (optional)
 }</pre>
                 </div>
                 <div class="api-endpoint">
@@ -323,6 +409,7 @@
   "waste_type": "normal", "recycle", or "both"
 }</pre>
                 </div>
+            </div>
             </div>
         </section>
 
@@ -350,10 +437,29 @@
             }
         });
 
-        // Auto-refresh dashboard every 30 seconds
-        let autoRefresh = setInterval(function() {
-            location.reload();
-        }, 30000);
+        // Auto-refresh dashboard every 30 seconds (paused when camera feed is open)
+        let autoRefresh = null;
+        let isCameraFeedOpen = false;
+
+        function startAutoRefresh() {
+            if (!autoRefresh && !isCameraFeedOpen) {
+                autoRefresh = setInterval(function() {
+                    if (!isCameraFeedOpen) {
+                        location.reload();
+                    }
+                }, 30000);
+            }
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefresh) {
+                clearInterval(autoRefresh);
+                autoRefresh = null;
+            }
+        }
+
+        // Start auto-refresh on page load
+        startAutoRefresh();
 
         // Helper function to show API response
         function showResponse(data, success = true) {
@@ -383,7 +489,9 @@
             const formData = {
                 waste_type: document.getElementById('waste_type').value,
                 volume: parseFloat(document.getElementById('volume').value),
-                weight: parseFloat(document.getElementById('weight').value)
+                weight: parseFloat(document.getElementById('weight').value),
+                brand: document.getElementById('brand').value,
+                product: document.getElementById('product').value
             };
 
             try {
@@ -585,6 +693,169 @@
                 }
             }
         });
+
+        // Toggle emissions info function
+        function toggleEmissionsInfo() {
+            const info = document.getElementById('emissions-info');
+            const icon = document.getElementById('toggle-icon');
+            if (info.style.display === 'none') {
+                info.style.display = 'block';
+                icon.textContent = '▲';
+            } else {
+                info.style.display = 'none';
+                icon.textContent = '▼';
+            }
+        }
+
+        // Handle image upload and display
+        let currentImageBase64 = null;
+        let cameraFeedInterval = null;
+        let lastImageTimestamp = null;
+
+        // Poll for camera feed updates
+        async function pollCameraFeed() {
+            try {
+                const response = await fetch('/api/camera-feed', {
+                    method: 'GET'
+                });
+
+                const data = await response.json();
+                
+                if (data.success && data.timestamp !== lastImageTimestamp) {
+                    // New image available
+                    lastImageTimestamp = data.timestamp;
+                    currentImageBase64 = data.image;
+                    
+                    const cameraImage = document.getElementById('cameraImage');
+                    const placeholder = document.getElementById('cameraFeed');
+                    
+                    cameraImage.src = data.image;
+                    cameraImage.style.display = 'block';
+                    placeholder.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error polling camera feed:', error);
+            }
+        }
+
+        // Start/stop camera feed polling when section is toggled
+        function toggleCameraFeedPolling(isOpen) {
+            isCameraFeedOpen = isOpen;
+            
+            if (isOpen) {
+                // Stop auto-refresh when camera feed is open
+                stopAutoRefresh();
+                
+                // Start polling every 2 seconds
+                pollCameraFeed(); // Get initial image
+                cameraFeedInterval = setInterval(pollCameraFeed, 2000);
+            } else {
+                // Stop polling
+                if (cameraFeedInterval) {
+                    clearInterval(cameraFeedInterval);
+                    cameraFeedInterval = null;
+                }
+                
+                // Resume auto-refresh when camera feed is closed
+                startAutoRefresh();
+            }
+        }
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                currentImageBase64 = e.target.result;
+                
+                // Send to API to broadcast to all users
+                try {
+                    const response = await fetch('/api/camera-feed', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            image: currentImageBase64
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        alert('Image uploaded and broadcast to all viewers!');
+                    }
+                } catch (error) {
+                    console.error('Error uploading image:', error);
+                    alert('Error uploading image: ' + error.message);
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Detect trash function (calls dummy API)
+        async function detectTrash() {
+            const resultDiv = document.getElementById('detectionResult');
+            
+            if (!currentImageBase64) {
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = '<p style="color: #c62828;">⚠ Please upload an image first</p>';
+                return;
+            }
+            
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<p>🔄 Detecting...</p>';
+            
+            try {
+                // TODO: Replace with actual detection API endpoint
+                const response = await fetch('https://api.example.com/detect-trash', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: currentImageBase64
+                    })
+                });
+                
+                // For now, simulate a response
+                setTimeout(() => {
+                    resultDiv.innerHTML = `
+                        <p style="color: #2e7d32;">✓ Detection Complete</p>
+                        <p><strong>Type:</strong> Recyclable (Plastic Bottle)</p>
+                        <p><strong>Confidence:</strong> 95%</p>
+                        <p style="font-size: 0.85em; color: #666;">Note: Using dummy detection API endpoint</p>
+                    `;
+                }, 1500);
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: #c62828;">⚠ Error: ${error.message}</p>`;
+            }
+        }
+
+        // Generic toggle section function
+        function toggleSection(contentId, iconId) {
+            const content = document.getElementById(contentId);
+            const icon = document.getElementById(iconId);
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.textContent = '▲';
+                
+                // Start camera feed polling if this is the detect section
+                if (contentId === 'detect-content') {
+                    toggleCameraFeedPolling(true);
+                }
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▼';
+                
+                // Stop camera feed polling if this is the detect section
+                if (contentId === 'detect-content') {
+                    toggleCameraFeedPolling(false);
+                }
+            }
+        }
     </script>
 </body>
 </html>

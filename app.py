@@ -6,6 +6,12 @@ import os
 app = Flask(__name__)
 DATABASE = 'trashbin.db'
 
+# Store latest camera image in memory
+latest_camera_image = {
+    'image': None,
+    'timestamp': None
+}
+
 # Scope 3 Emissions Factors (kg CO2e per kg of waste)
 # Based on EPA and industry standards
 EMISSIONS_FACTORS = {
@@ -59,6 +65,8 @@ def init_db():
             waste_type TEXT NOT NULL,
             volume REAL NOT NULL,
             weight REAL NOT NULL,
+            brand TEXT,
+            product TEXT,
             event_type TEXT DEFAULT 'add',
             co2_emissions REAL DEFAULT 0,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -89,6 +97,18 @@ def init_db():
         cursor.execute("SELECT co2_emissions FROM trash_logs LIMIT 1")
     except sqlite3.OperationalError:
         cursor.execute("ALTER TABLE trash_logs ADD COLUMN co2_emissions REAL DEFAULT 0")
+    
+    # Add brand column if it doesn't exist (migration)
+    try:
+        cursor.execute("SELECT brand FROM trash_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE trash_logs ADD COLUMN brand TEXT")
+    
+    # Add product column if it doesn't exist (migration)
+    try:
+        cursor.execute("SELECT product FROM trash_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE trash_logs ADD COLUMN product TEXT")
     
     # Insert initial status if not exists
     cursor.execute('SELECT COUNT(*) FROM trashbin_status')
@@ -199,18 +219,36 @@ def dashboard():
         
         # Convert to list format for chart
         daily_capacity = []
-        for date in sorted(daily_weights.keys()):
+        for date in sorted(daily_weights.keys()):   
             daily_capacity.append({
                 'date': date,
                 'normal_weight': daily_weights[date].get('normal', 0),
                 'recycle_weight': daily_weights[date].get('recycle', 0)
             })
         
+        # Get product statistics (top 10 products)
+        product_stats = conn.execute('''
+            SELECT 
+                product,
+                brand,
+                COUNT(*) as total_items,
+                SUM(CASE WHEN waste_type = 'recycle' THEN 1 ELSE 0 END) as recycle_count,
+                SUM(CASE WHEN waste_type = 'normal' THEN 1 ELSE 0 END) as normal_count,
+                SUM(weight) as total_weight,
+                SUM(co2_emissions) as total_co2
+            FROM trash_logs
+            WHERE product IS NOT NULL AND product != '' AND event_type = 'add'
+            GROUP BY product, brand
+            ORDER BY total_items DESC
+            LIMIT 10
+        ''').fetchall()
+        
         return render_template('dashboard.html', 
                              status=status, 
                              emissions=emissions,
                              logs=logs, 
                              stats=stats,
+                             product_stats=product_stats,
                              monthly_emissions=monthly_emissions,
                              hourly_capacity=hourly_capacity,
                              daily_capacity=daily_capacity)
@@ -228,6 +266,8 @@ def add_trash():
         waste_type = data.get('waste_type', '').lower()
         volume = float(data.get('volume', 0))
         weight = float(data.get('weight', 0))
+        brand = data.get('brand', '')
+        product = data.get('product', '')
         
         if waste_type not in ['normal', 'recycle']:
             return jsonify({'error': 'Invalid waste_type. Must be "normal" or "recycle"'}), 400
@@ -240,9 +280,9 @@ def add_trash():
         
         # Add log entry (no emissions during add, only during empty)
         cursor.execute('''
-            INSERT INTO trash_logs (waste_type, volume, weight, event_type, co2_emissions)
-            VALUES (?, ?, ?, 'add', 0)
-        ''', (waste_type, volume, weight))
+            INSERT INTO trash_logs (waste_type, volume, weight, brand, product, event_type, co2_emissions)
+            VALUES (?, ?, ?, ?, ?, 'add', 0)
+        ''', (waste_type, volume, weight, brand, product))
         
         # Update current status
         if waste_type == 'normal':
@@ -280,6 +320,85 @@ def add_trash():
         
         return jsonify(result), 201
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/add-item', methods=['POST'])
+def add_item_json():
+    """API endpoint to add item with simplified JSON format"""
+    conn = None
+    try:
+        data = request.get_json()
+        
+        # Parse JSON fields
+        recyclable = data.get('recyclable', False)
+        weight_in_gram = int(data.get('weight_in_gram', 0))
+        product_brand = data.get('product_brand', '')
+        product_name = data.get('product_name', '')
+        
+        # Validate input
+        if weight_in_gram <= 0:
+            return jsonify({'error': 'weight_in_gram must be a positive number'}), 400
+        
+        # Convert to internal format
+        waste_type = 'recycle' if recyclable else 'normal'
+        weight = weight_in_gram / 1000.0  # Convert grams to kg
+        volume = weight * 1.2  # Estimate volume (1.2L per kg as rough estimate)
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Add log entry
+        cursor.execute('''
+            INSERT INTO trash_logs (waste_type, volume, weight, brand, product, event_type, co2_emissions)
+            VALUES (?, ?, ?, ?, ?, 'add', 0)
+        ''', (waste_type, volume, weight, product_brand, product_name))
+        
+        # Update current status
+        if waste_type == 'normal':
+            cursor.execute('''
+                UPDATE trashbin_status
+                SET normal_volume = normal_volume + ?,
+                    normal_weight = normal_weight + ?,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = (SELECT MAX(id) FROM trashbin_status)
+            ''', (volume, weight))
+        else:  # recycle
+            cursor.execute('''
+                UPDATE trashbin_status
+                SET recycle_volume = recycle_volume + ?,
+                    recycle_weight = recycle_weight + ?,
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = (SELECT MAX(id) FROM trashbin_status)
+            ''', (volume, weight))
+        
+        conn.commit()
+        
+        # Get updated status
+        status = cursor.execute('SELECT * FROM trashbin_status ORDER BY id DESC LIMIT 1').fetchone()
+        
+        result = {
+            'success': True,
+            'message': f'{"Recyclable" if recyclable else "Normal"} item added successfully',
+            'item': {
+                'product_name': product_name,
+                'product_brand': product_brand,
+                'weight_kg': weight,
+                'recyclable': recyclable
+            },
+            'current_status': {
+                'normal_weight_kg': status['normal_weight'],
+                'recycle_weight_kg': status['recycle_weight']
+            }
+        }
+        
+        return jsonify(result), 201
+        
+    except ValueError as e:
+        return jsonify({'error': 'Invalid data format. weight_in_gram must be an integer'}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -444,6 +563,54 @@ def get_status():
 def serve_icon():
     """Serve the SVG icon for both sizes"""
     return send_from_directory('static', 'icon.svg', mimetype='image/svg+xml')
+
+@app.route('/api/camera-feed', methods=['POST'])
+def camera_feed():
+    """API endpoint to receive and store base64 encoded image"""
+    global latest_camera_image
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'image' not in data:
+            return jsonify({'error': 'No image data provided'}), 400
+        
+        image_data = data['image']
+        
+        # Validate base64 format (basic check)
+        if not image_data.startswith('data:image'):
+            # Add proper data URI prefix if not present
+            image_data = f'data:image/jpeg;base64,{image_data}'
+        
+        # Store the latest image
+        latest_camera_image['image'] = image_data
+        latest_camera_image['timestamp'] = datetime.now().isoformat()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Image received and broadcast to all viewers',
+            'timestamp': latest_camera_image['timestamp']
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/camera-feed', methods=['GET'])
+def get_camera_feed():
+    """API endpoint to retrieve the latest camera image"""
+    global latest_camera_image
+    
+    if latest_camera_image['image'] is None:
+        return jsonify({
+            'success': False,
+            'message': 'No image available'
+        }), 404
+    
+    return jsonify({
+        'success': True,
+        'image': latest_camera_image['image'],
+        'timestamp': latest_camera_image['timestamp']
+    }), 200
 
 if __name__ == '__main__':
     # Initialize database on startup
