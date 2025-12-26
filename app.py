@@ -88,7 +88,10 @@ def create_response(b64_str):
 app = Flask(__name__)
 DATABASE = 'trashbin.db'
 
-client = openai.OpenAI()
+from dotenv import load_dotenv
+load_dotenv()
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 cap = None
 if os.environ.get('WERKZEUG_RUN_MAIN'):
