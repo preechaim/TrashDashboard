@@ -336,7 +336,7 @@ def dashboard():
                 SUM(co2_emissions) as total_co2
             FROM trash_logs
             WHERE product IS NOT NULL AND product != '' AND event_type = 'add'
-            GROUP BY product, brand
+            GROUP BY LOWER(product), LOWER(brand)
             ORDER BY total_items DESC
             LIMIT 10
         ''').fetchall()
